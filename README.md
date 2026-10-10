@@ -34,5 +34,14 @@ Przekrojowa eksploracyjna analiza danych  o historii i demografii laureatów Nag
 
 ## Podgląd
 
-#dokończ
+<img width="874" height="1148" alt="image" src="https://github.com/user-attachments/assets/0f932eae-7ab3-43d5-a399-3ce150c2f023" />
+
+#
+
+<img width="872" height="1265" alt="image" src="https://github.com/user-attachments/assets/e050f03a-0c22-4fb9-8aa6-0eac4dcbba51" />
+
+
+
+
+
 
