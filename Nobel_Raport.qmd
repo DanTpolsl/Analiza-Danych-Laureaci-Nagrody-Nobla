@@ -1,0 +1,224 @@
+---
+title: "Analiza Danych: Laureaci Nagrody Nobla"
+author: "Daniel Terlecki"
+format: 
+  html:
+   embed-resources: True
+editor: visual
+echo: FALSE
+warning: false
+message: false
+---
+
+```{r}
+library(tidyverse) # wczytywanie, transformacja, wizualizacja
+library(lubridate) # praca z datami
+library(scales) # formatowanie osi na wykresach
+library(knitr) # tworzenie tabel
+library(kableExtra) # zaawansowane formatowanie tabel
+
+library(ggthemes) # dodatkowe motywy dla ggplot2
+library(countrycode) # standaryzacja nazw krajów
+
+nobel <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2019/2019-05-14/nobel_winners.csv")
+
+
+nobel_clean <- nobel %>%  mutate(laureate_id= paste0(prize_year,"|",laureate_id)) %>%   
+  group_by(laureate_id) %>% 
+  slice(1) %>% #deduplikacja
+  ungroup()  %>% 
+  mutate(birth_date= as.Date(birth_date), # modyfikacje danych i nowe dane
+         death_date= as.Date(death_date),
+         gender= as.factor(gender),
+         category= as.factor(category),
+         laureate_type= as.factor(laureate_type),
+         age_at_award= prize_year - year(birth_date),# rok dostania nagrody
+         lives= if_else(is.na(death_date),TRUE,FALSE),# czy żyje
+         lives= if_else(laureate_type=="Organization",NA, lives),#na wypadek organizacji
+         lived_years= time_length( interval(birth_date,death_date),"year"),# długość życia, zmień jezeli nie żyje
+         
+         prize_share= case_when(# character na numeric
+           prize_share=="1/1"~ 1,
+           prize_share=="1/2"~ 0.5,
+           prize_share=="1/3"~ 0.333,
+           prize_share=="1/4"~ 0.25,
+         )) %>% 
+  mutate( # wyodrębniam współczesne kraje do nowej kolumny
+    across(c(birth_country,death_country,organization_country),# w tych trzech kolumnach
+           ~  if_else(str_detect(.x,"\\(|\\)"),str_extract(.x, "(?<=\\().*(?=\\))"), .x), # Jeśli znajdzie ( lub ), wyciąga wszystko co jest w nawiasach bez nawiasów, w przeciwnym przypadku zostawia taki sam wiersz
+           .names = "modern_{.col}")) %>% # do nowych kolumn
+  mutate(# usuwam z starych kolumn współczesne kraje
+    across(c(birth_country,death_country,organization_country),
+           ~ str_remove(.x,"\\(.*\\)"))# usuwa całość od "(" do ")"
+  ) # Obsługa brakujących wartości, chyba lepiej zostawiść jako że wiele NA pasuje, gdyż brak danych w wielu kolumnach ma większy sens.
+
+
+
+```
+
+## Rozkład nagród
+
+```{r}
+
+nobel_clean %>% select(prize_share) %>% 
+  count(prize_share) %>% 
+  mutate(liczba_nagród= round(n*prize_share), 
+         prize_share= case_when( # zmienam na ile osób była dzielona nagroda
+           prize_share==1~ "jednego",
+           prize_share==0.500~ "dwóch",
+           prize_share==0.333~ "trzech",
+           prize_share==0.250~ "czterech")) %>% 
+  arrange(desc(n)) %>%  
+  kable(caption = paste0("Liczba nagród i na ile laureatów była dzielona.\n","Wszystkich nagród jest ",sum(.$liczba_nagród) ),
+        col.names = c("Dzielona na _ laureata(ów):","Ilość laureatów:","Liczba nagród:"))
+```
+Zdecydowanoa większość nagród przyznawana była pojedynczym osobom, mniej niż połowa nagród była dzielona na kilka osób.
+
+## Rozkład rozdania nagród
+
+```{r}
+nobel_clean %>%
+  distinct(prize_year, category) %>% # ponieważ wiele nagród jest dzielonych na kilka laureatów
+  count(prize_year, category) %>% # nowa kolumna liczbowa do wykresu
+  ggplot(aes(x = prize_year, y = n, fill = category))+
+  geom_col() +
+  labs(title="Liczba nagród przyznawanych w poszczególnych latach",
+       y=NULL,x="Rok",fill="kategoria")+
+  scale_y_continuous(breaks = c(1:6))+
+  scale_x_continuous(breaks = seq(1900,2020,by=10))+
+  theme_clean()
+```
+Wykres przedstawia ciągłość przyznawania nagród na przestrzeni lat. Wyraźnie widoczne są luki w przyznawaniu nagród podczas konfliktów światowych oraz rozwój zestawienia o nową kategorię (ekonomię) w późniejszym okresie.
+
+## Liczba laureatów w danych kategoriach
+
+```{r}
+nobel_clean %>% 
+  count(category) %>% 
+  ggplot(aes(x=category,y=n,fill = category)) +
+  scale_y_continuous(breaks = seq(0,250,by=20),limits=c(0,230))+
+  geom_col()+
+  labs( title = "",fill="Kategoria",y=NULL,x=NULL)+
+  theme_bw()
+```
+
+Precyzyjny wgląd na ilość nagród ze wszystkich kategorii.
+
+## Laureaci z wieloma nagrodami
+
+```{r}
+nobel_clean %>% 
+  count(full_name) %>%  
+  arrange(desc(n)) %>% 
+  filter(n >1) %>% 
+  
+  kable(caption = "Lista laureatów z wieloma nagrodami",
+        col.names = c("Imię i nazwisko","nagrody"))
+```
+
+Wygranie Nobla więcej niż raz to ogromna rzadkość, często udaje się to nie pojedynczym ludziom, ale instytucjom i organizacjom międzynarodowym.
+
+## Wiek laureatów
+
+```{r}
+nobel_clean %>% 
+  select(prize_year,age_at_award,category) %>%
+  drop_na() %>% 
+  ggplot(aes(x=prize_year,y=age_at_award, color = category)) +
+  geom_line() +
+  geom_point(aes(x=prize_year,y=age_at_award, color = category))+
+  labs( title="Rozkład wieku laureatów w momencie otrzymania nagrody",
+        x="Rok", y="Wiek laureata w danym momencie",
+        color="Kategoria")+
+  scale_y_continuous(limits=c(0,90),breaks = seq(0,90, by=10))+
+  theme_clean()
+```
+
+Wykres przedstawia rozkład wieku laureatów w momencie przyznania Nagrody Nobla. Dane wskazują na znaczną rozpiętość wiekową, od osób koło 20 roku życia do prawie 90 latków oraz wyraźne różnice w zależności od analizowanej kategorii.
+
+## Ranking Krajów
+
+```{r}
+nobel_clean %>%
+  drop_na(modern_birth_country) %>% 
+  group_by(modern_birth_country) %>% 
+  summarise(liczebność=n()) %>% 
+  arrange(desc(liczebność)) %>% # od najwyższych do najniższych
+  slice(1:10) %>% # 10 wierszy z najwyższą liczebnością
+  
+  ggplot(aes( x=liczebność,y=reorder(modern_birth_country,liczebność), fill=modern_birth_country)) +
+  geom_col(show.legend = F) +
+ 
+  geom_text( aes(label = liczebność),# ilość nagród przy kolumnie
+             hjust = -0.2,
+             fontface="bold") +
+  labs(
+    title = "Top 10 krajów  według ilości laureatów, \n urodzonych w danym kraju",
+    x="",
+    y=""
+  ) +
+  scale_x_continuous(breaks = NULL,limits = c(0,270))+
+  
+  theme_foundation()
+
+```
+
+Stany Zjednoczone dominują pośród krajów. Drugi w rankingu ma tylko jedną trzecią nagród w porównaniu.
+
+## 10 najstarszych oraz najmłodszych laureatów
+
+```{r}
+
+nobel_clean %>%  select(full_name,age_at_award,category) %>%
+  drop_na() %>% # usuwam błędy,organizacje
+  arrange(desc(age_at_award)) %>% 
+  slice(1:10, (n()-9):n()) %>% # 5 najwyżej i 5 najniżej
+  mutate( kategoria= if_else( age_at_award > mean(age_at_award),"najstarsi","najmłodsi")) %>% # kategoryzuję po tym czy wiek jest większy od średniej kolumny
+  
+  ggplot( aes(x = age_at_award, y = fct_reorder(full_name, age_at_award), fill = category)) + 
+  geom_col(width = 0.7) +
+  facet_wrap(~ kategoria, ncol=1, scales ="free_y") +# oddzielam  po kategorii najstarszych i najmłodszych
+  #scale_fill_manual(values = c("najmłodsi" = "skyblue", "najstarsi" = "darkred")) +
+  scale_x_continuous(breaks = seq(0,100,by= 10))+
+  labs(title="Najstarsi i najmłodsi laureaci w momencie otrzymania nagrody",y=NULL, x = "Lata")+
+  theme_minimal()
+```
+
+Wykres pokazuje wyraźną różnicę wieku między skrajnymi obserwacjami – najmłodsi laureaci mają nawet poniżej 20 lat, podczas gdy najstarsi osiągają wiek około 90 lat.Widać też pewien trend wśród młodszych laureatów, którzy osiągają wiele w fizyce i ekonomii. W porównaniu ze starszymi laureatami żadnych trendów nie widać.
+
+## Najdłużej żyjący laureaci(pośród zmarłych)
+
+```{r}
+nobel_clean %>% 
+  select(full_name,lived_years) %>% 
+  arrange(desc(lived_years)) %>% 
+  mutate(lived_years= floor(lived_years)) %>% 
+  slice(1:10) %>% 
+  kable(caption = "Najdłużej żyjący laureaci ze zmarłych",
+        col.names = c("Imię i nazwisko","żył __ lat(a)"))
+```
+Zestawienie ukazuje najdłużej żyjących laureatów, cała czołówka osiągnęła wiek powyżej 90, w tym są osoby stuletnie.
+
+## Migranci pośród laureatów
+
+```{r}
+nobel_clean %>%  select(modern_birth_country,modern_organization_country) %>%
+  drop_na() %>% 
+  count(modern_birth_country,modern_organization_country) %>% 
+  group_by(imigrant=modern_birth_country!=modern_organization_country) %>% # grupuje na podstawie czy  te dwie kolumny mają takie same dane
+  summarise( n = n()) %>%
+  mutate(procent = round(n/ sum(n)*100)) %>% # oprocentowanie
+  mutate( imigrant=if_else(imigrant,"Tak","Nie")) %>% # dla estetyki bool zamieniam na tak lub nie
+  
+  ggplot(aes(x="",y=procent,fill=imigrant)) + 
+  geom_bar(stat="identity")+
+  coord_polar(theta = "y") + 
+  geom_text(aes(label=paste0(procent,"%")),# ustawiam w wykresie wartość 
+            position = position_stack(vjust = 0.5))+
+  labs(
+    title= "Oprocentowanie ilu laureatów migrowało z kraju pochodzenia",
+    fill=" Czy jest imigrantem") +
+  theme_void()
+```
+
+Większość laureatów zdobyła Nobla w innym kraju niż ten, w którym się urodziła. To pokazało, jak ogromną rolę w sukcesie naukowym gra międzynarodowa mobilność i wyjazd do lepszych ośrodków.
