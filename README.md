@@ -32,7 +32,7 @@ Przekrojowa eksploracyjna analiza danych  o historii i demografii laureatów Nag
 - **Wizualizacja danych:** `ggplot2`
 - **Wdrożenie / Hosting:** GitHub Pages
 
-## Podgląd
+## Podgląd raportu
 
 <img width="874" height="1148" alt="image" src="https://github.com/user-attachments/assets/0f932eae-7ab3-43d5-a399-3ce150c2f023" />
 
